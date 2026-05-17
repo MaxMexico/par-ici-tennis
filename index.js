@@ -7,6 +7,7 @@ import { writeFileSync } from 'fs'
 import { createEvent } from 'ics'
 import { config } from './staticFiles.js'
 import { notify } from './lib/ntfy.js'
+import { huggingFaceAPI } from './lib/huggingface.js'
 
 dayjs.extend(customParseFormat)
 dayjs.extend(utc)
@@ -147,16 +148,23 @@ const bookTennis = async () => {
         continue
       }
 
-      console.log(`${dayjs().format()} - Page réservation: ${page.url()}`)
-      await page.screenshot({ path: 'img/reservation-page.png', fullPage: true }).catch(() => {})
-
-      // Identifier le texte du h2 de l'étape courante
-      const stepText = await page.$eval('.order-steps-infos h2', el => el.innerText).catch(() => 'h2 introuvable')
-      console.log(`${dayjs().format()} - Étape actuelle: "${stepText}"`)
-
-      // Identifier tous les inputs visibles sur la page
-      const inputs = await page.$$eval('input:not([type="hidden"])', els => els.map(e => `${e.name}|${e.type}|${e.id}`)).catch(() => [])
-      console.log(`${dayjs().format()} - Inputs visibles: ${JSON.stringify(inputs)}`)
+      // Résoudre le CAPTCHA visuel si présent (jusqu'à 3 tentatives)
+      if (page.url().includes('captcha')) {
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          await page.waitForLoadState('domcontentloaded')
+          const captchaImg = await page.$('img')
+          if (!captchaImg) break
+          const imgBuffer = await captchaImg.screenshot()
+          const solution = await huggingFaceAPI(new Blob([imgBuffer], { type: 'image/png' }))
+          console.log(`${dayjs().format()} - CAPTCHA tentative ${attempt}: "${solution}"`)
+          const captchaInput = await page.$('input[type="text"]')
+          if (!captchaInput) break
+          await captchaInput.fill(solution)
+          await page.click('text=Valider')
+          await page.waitForLoadState('domcontentloaded')
+          if (!page.url().includes('captcha')) break
+        }
+      }
 
       await page.waitForSelector('[name="player1"]', { timeout: 30000 })
 
