@@ -87,12 +87,9 @@ const bookTennis = async () => {
 
       await page.click('#rechercher')
 
-      // l'URL action= est transitoire et redirige (JS) vers la vue résultats
-      await page.waitForLoadState('domcontentloaded')
-      await page.waitForURL(url => !String(url).includes('action='), { timeout: 12000 }).catch(() => {})
-      await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {})
-      console.log(`${dayjs().format()} - URL après recherche: ${page.url()} | titre: "${await page.title().catch(() => '?')}"`)
-      await page.screenshot({ path: `img/results-${location.replaceAll(' ', '')}.png`, fullPage: true }).catch(() => {})
+      // Attendre que les créneaux soient chargés dans le DOM (AJAX ou redirection JSP)
+      await page.waitForSelector('[datedeb]', { timeout: 30000 }).catch(() => {})
+      await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
 
       let selectedHour
       hoursLoop:
@@ -135,15 +132,7 @@ const bookTennis = async () => {
       }
 
       if (await page.title() !== 'Paris | TENNIS - Reservation') {
-        try {
-          const debug = await page.evaluate(() => {
-            const els = document.querySelectorAll('[datedeb]')
-            return { count: els.length, samples: [...els].slice(0, 6).map(e => e.getAttribute('datedeb')) }
-          })
-          console.log(`${dayjs().format()} - Aucun créneau retenu pour ${logLocation} [${debug.count} créneaux sur la page, exemples: ${JSON.stringify(debug.samples)}]`)
-        } catch {
-          console.log(`${dayjs().format()} - Aucun créneau retenu pour ${logLocation} [page naviguée, contexte indisponible]`)
-        }
+        console.log(`${dayjs().format()} - Aucun créneau retenu pour ${logLocation}`)
         continue
       }
 
