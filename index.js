@@ -71,10 +71,9 @@ const bookTennis = async () => {
 
       await page.click('#rechercher')
 
-      // wait until the results page is fully loaded before continue
+      // attendre la fin des requêtes AJAX pour avoir les résultats chargés
       await page.waitForLoadState('domcontentloaded')
-      // les créneaux peuvent se charger en AJAX : attendre leur apparition
-      await page.waitForSelector('[datedeb]', { timeout: 15000 }).catch(() => {})
+      await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {})
 
       let selectedHour
       hoursLoop:
@@ -117,11 +116,15 @@ const bookTennis = async () => {
       }
 
       if (await page.title() !== 'Paris | TENNIS - Reservation') {
-        const debug = await page.evaluate(() => {
-          const els = document.querySelectorAll('[datedeb]')
-          return { count: els.length, samples: [...els].slice(0, 6).map(e => e.getAttribute('datedeb')) }
-        })
-        console.log(`${dayjs().format()} - Aucun créneau disponible pour ${logLocation} [${debug.count} créneaux sur la page, exemples: ${JSON.stringify(debug.samples)}]`)
+        try {
+          const debug = await page.evaluate(() => {
+            const els = document.querySelectorAll('[datedeb]')
+            return { count: els.length, samples: [...els].slice(0, 6).map(e => e.getAttribute('datedeb')) }
+          })
+          console.log(`${dayjs().format()} - Aucun créneau retenu pour ${logLocation} [${debug.count} créneaux sur la page, exemples: ${JSON.stringify(debug.samples)}]`)
+        } catch {
+          console.log(`${dayjs().format()} - Aucun créneau retenu pour ${logLocation} [page naviguée, contexte indisponible]`)
+        }
         continue
       }
 
