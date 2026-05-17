@@ -147,7 +147,7 @@ const bookTennis = async () => {
         continue
       }
 
-      await page.waitForSelector('.order-steps-infos h2 >> text="1 / 3 - Validation du court"')
+      await page.waitForSelector('[name="player1"]', { timeout: 30000 })
 
       for (const [i, player] of config.players.entries()) {
         if (i > 0 && i < config.players.length) {
