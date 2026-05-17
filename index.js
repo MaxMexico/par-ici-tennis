@@ -73,6 +73,8 @@ const bookTennis = async () => {
 
       // wait until the results page is fully loaded before continue
       await page.waitForLoadState('domcontentloaded')
+      // les créneaux peuvent se charger en AJAX : attendre leur apparition
+      await page.waitForSelector('[datedeb]', { timeout: 15000 }).catch(() => {})
 
       let selectedHour
       hoursLoop:
@@ -115,7 +117,11 @@ const bookTennis = async () => {
       }
 
       if (await page.title() !== 'Paris | TENNIS - Reservation') {
-        console.log(`${dayjs().format()} - Aucun créneau disponible pour ${logLocation}`)
+        const debug = await page.evaluate(() => {
+          const els = document.querySelectorAll('[datedeb]')
+          return { count: els.length, samples: [...els].slice(0, 6).map(e => e.getAttribute('datedeb')) }
+        })
+        console.log(`${dayjs().format()} - Aucun créneau disponible pour ${logLocation} [${debug.count} créneaux sur la page, exemples: ${JSON.stringify(debug.samples)}]`)
         continue
       }
 
