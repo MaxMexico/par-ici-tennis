@@ -91,6 +91,9 @@ const bookTennis = async () => {
       await page.waitForSelector('[datedeb]', { timeout: 30000 }).catch(() => {})
       await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
 
+      const debugSlots = await page.$$eval('[datedeb]', els => els.slice(0, 5).map(e => e.getAttribute('datedeb'))).catch(() => [])
+      console.log(`${dayjs().format()} - Exemples datedeb sur la page: ${JSON.stringify(debugSlots)}`)
+
       let selectedHour
       hoursLoop:
       for (const hour of config.hours) {
