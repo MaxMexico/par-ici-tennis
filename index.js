@@ -147,6 +147,17 @@ const bookTennis = async () => {
         continue
       }
 
+      console.log(`${dayjs().format()} - Page réservation: ${page.url()}`)
+      await page.screenshot({ path: 'img/reservation-page.png', fullPage: true }).catch(() => {})
+
+      // Identifier le texte du h2 de l'étape courante
+      const stepText = await page.$eval('.order-steps-infos h2', el => el.innerText).catch(() => 'h2 introuvable')
+      console.log(`${dayjs().format()} - Étape actuelle: "${stepText}"`)
+
+      // Identifier tous les inputs visibles sur la page
+      const inputs = await page.$$eval('input:not([type="hidden"])', els => els.map(e => `${e.name}|${e.type}|${e.id}`)).catch(() => [])
+      console.log(`${dayjs().format()} - Inputs visibles: ${JSON.stringify(inputs)}`)
+
       await page.waitForSelector('[name="player1"]', { timeout: 30000 })
 
       for (const [i, player] of config.players.entries()) {
