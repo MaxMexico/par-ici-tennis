@@ -24,7 +24,7 @@ const bookTennis = async () => {
   const browser = await chromium.launch({
     headless: true,
     slowMo: 0,
-    timeout: 120000,
+    timeout: 90000,
     args: ['--disable-blink-features=AutomationControlled'],
   })
 
@@ -36,11 +36,13 @@ const bookTennis = async () => {
     userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.7727.15 Safari/537.36',
   })
   const page = await context.newPage()
-  // masquer navigator.webdriver avant tout script de la page
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
   })
-  page.setDefaultTimeout(120000)
+  // Bloquer le captcha invisible pour éviter le captcha visuel à la réservation
+  await page.route('https://captcha.liveidentity.com/captcha/public/frontend/api/v3/captcha-invisible/invisible-captcha-infos', (route) => route.abort())
+  await page.route('https://captcha.liveidentity.com/captcha/public/frontend/api/v3/captchas**', (route) => route.abort())
+  page.setDefaultTimeout(90000)
   await page.goto('https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=tennis&view=start&full=1')
 
   await page.click('#button_suivi_inscription')
@@ -70,9 +72,6 @@ const bookTennis = async () => {
       const logLocation = process.env.GITHUB_ACTIONS ? `location ${i + 1}` : location
       console.log(`${dayjs().format()} - Search at ${logLocation}`)
       await page.goto('https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=recherche&view=recherche_creneau#!')
-      await page.waitForLoadState('domcontentloaded')
-      console.log(`${dayjs().format()} - Page de recherche: ${page.url()} | titre: "${await page.title()}"`)
-      await page.screenshot({ path: 'img/search-page.png' }).catch(() => {})
 
       // select tennis location
       await page.locator('.tokens-input-text').pressSequentially(`${location} `)
@@ -88,55 +87,35 @@ const bookTennis = async () => {
 
       await page.click('#rechercher')
 
-      // Attendre que les créneaux soient chargés dans le DOM (AJAX ou redirection JSP)
-      await page.waitForSelector('[datedeb]', { timeout: 30000 }).catch(() => {})
-      await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
-
-      const debugSlots = await page.$$eval('[datedeb]', els => els.slice(0, 5).map(e => e.getAttribute('datedeb'))).catch(() => [])
-      console.log(`${dayjs().format()} - Exemples datedeb sur la page: ${JSON.stringify(debugSlots)}`)
+      // wait until the results page is fully loaded before continue
+      await page.waitForLoadState('domcontentloaded')
 
       let selectedHour
       hoursLoop:
       for (const hour of config.hours) {
         const dateDeb = `[datedeb="${date.format('YYYY/MM/DD')} ${hour}:00:00"]`
-        if (await page.$(dateDeb)) {
-          const accordionSelector = `#collapse${location.replaceAll(' ', '')}${hour}h`
-          const accordionElement = await page.$(accordionSelector)
-          console.log(`${dayjs().format()} - ${hour}h: accordéon ${accordionSelector} ${accordionElement ? 'trouvé' : 'ABSENT'}`)
-          if (accordionElement) {
-            await accordionElement.evaluate(el => {
-              el.classList.add('in')
-              el.style.display = 'block'
-            })
-            await page.waitForTimeout(150)
+        if (await page.locator(dateDeb).count()) {
+          if (await page.isHidden(dateDeb)) {
+            await page.click(`#head${location.replaceAll(' ', '')}${hour}h .panel-title`)
           }
 
           const courtNumbers = !Array.isArray(config.locations) ? config.locations[location] : []
-          const slots = await page.$$(dateDeb)
-          console.log(`${dayjs().format()} - ${hour}h: ${slots.length} slot(s) trouvé(s)`)
+          const slots = await page.locator(dateDeb).all()
           for (const slot of slots) {
-            const courtId = await slot.getAttribute('courtid')
-            const bookSlotButton = `[courtid="${courtId}"]${dateDeb}`
+            const bookSlotButton = `[courtid="${await slot.getAttribute('courtid')}"]${dateDeb}`
             if (courtNumbers.length > 0) {
-              const courtName = (await (await page.$(`.court:left-of(${bookSlotButton})`)).innerText()).trim()
+              const courtName = (await page.locator(`.court:left-of(${bookSlotButton})`).innerText()).trim()
               if (!courtNumbers.includes(parseInt(courtName.match(/Court N°(\d+)/)[1]))) {
                 continue
               }
             }
 
-            const priceEl = await page.$(`.price-description:left-of(${bookSlotButton})`)
-            if (!priceEl) {
-              console.log(`${dayjs().format()} - ${hour}h court ${courtId}: price-description introuvable`)
-              continue
-            }
-            const [priceType, courtType] = (await priceEl.innerHTML()).split('<br>')
-            console.log(`${dayjs().format()} - ${hour}h court ${courtId}: priceType="${priceType}" courtType="${courtType}"`)
+            const [priceType, courtType] = (await page.locator(`.row.tennis-court:has(${bookSlotButton})`).locator('.price-description').innerHTML()).split('<br>')
             if (!config.priceType.includes(priceType) || !config.courtType.includes(courtType)) {
               continue
             }
             selectedHour = hour
-            await page.$eval(bookSlotButton, el => el.click())
-            await page.waitForSelector('.order-steps-infos', { timeout: 15000 }).catch(() => {})
+            await page.click(bookSlotButton)
 
             break hoursLoop
           }
@@ -148,15 +127,14 @@ const bookTennis = async () => {
         continue
       }
 
-      // Résoudre le CAPTCHA visuel si présent (jusqu'à 3 tentatives)
+      // Fallback: résoudre le CAPTCHA visuel si les abortions n'ont pas suffi
       if (page.url().includes('captcha')) {
         let captchaSolved = false
         for (let attempt = 1; attempt <= 3; attempt++) {
           await page.waitForLoadState('domcontentloaded')
           const captchaImg = await page.$('img')
-          if (!captchaImg) break
           const captchaInput = await page.$('input[type="text"]')
-          if (!captchaInput) break
+          if (!captchaImg || !captchaInput) break
           try {
             const imgBuffer = await captchaImg.screenshot()
             const solution = await huggingFaceAPI(new Blob([imgBuffer], { type: 'image/png' }))
@@ -176,10 +154,10 @@ const bookTennis = async () => {
         }
       }
 
-      await page.waitForSelector('[name="player1"]', { timeout: 30000 })
+      await page.waitForSelector('.order-steps-infos h2 >> text="1 / 3 - Validation du court"')
 
       for (const [i, player] of config.players.entries()) {
-        if (i > 0 && i < config.players.length) {
+        if (i > 0) {
           await page.click('.addPlayer')
         }
         await page.waitForSelector(`[name="player${i + 1}"]`)
@@ -190,7 +168,7 @@ const bookTennis = async () => {
       await page.keyboard.press('Enter')
 
       await page.waitForSelector('#order_select_payment_form #paymentMode', { state: 'attached' })
-      const paymentMode = await page.$('#order_select_payment_form #paymentMode')
+      const paymentMode = page.locator('#order_select_payment_form #paymentMode')
       await paymentMode.evaluate(el => {
         el.removeAttribute('readonly')
         el.style.display = 'block'
@@ -210,16 +188,15 @@ const bookTennis = async () => {
         break locationsLoop
       }
 
-      const submit = await page.$('#order_select_payment_form #envoyer')
-      submit.evaluate(el => el.classList.remove('hide'))
+      const submit = page.locator('#order_select_payment_form #envoyer')
+      await submit.evaluate(el => el.classList.remove('hide'))
       await submit.click()
 
       await page.waitForSelector('.confirmReservation')
 
-      // Extract reservation details
-      const address = (await (await page.$('.address')).textContent()).trim().replace(/( ){2,}/g, ' ')
-      const dateStr = (await (await page.$('.date')).textContent()).trim().replace(/( ){2,}/g, ' ')
-      const court = (await (await page.$('.court')).textContent()).trim().replace(/( ){2,}/g, ' ')
+      const address = (await page.locator('.address').textContent()).trim().replace(/( ){2,}/g, ' ')
+      const dateStr = (await page.locator('.date').textContent()).trim().replace(/( ){2,}/g, ' ')
+      const court = (await page.locator('.court').textContent()).trim().replace(/( ){2,}/g, ' ')
 
       if (!process.env.GITHUB_ACTIONS) {
         console.log(`${dayjs().format()} - Réservation faite : ${address}`)
@@ -247,7 +224,6 @@ const bookTennis = async () => {
           console.log('ICS creation error:', error)
           return
         }
-
         if (!process.env.GITHUB_ACTIONS) {
           writeFileSync('event.ics', value)
         }
