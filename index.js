@@ -20,12 +20,25 @@ const bookTennis = async () => {
   }
 
   console.log(`${dayjs().format()} - Starting searching tennis`)
-  const browser = await chromium.launch({ headless: true, slowMo: 0, timeout: 120000 })
+  const browser = await chromium.launch({
+    headless: true,
+    slowMo: 0,
+    timeout: 120000,
+    args: ['--disable-blink-features=AutomationControlled'],
+  })
 
   console.log(`${dayjs().format()} - Browser started`)
-  const page = await browser.newPage()
-  await page.route('https://captcha.liveidentity.com/captcha/public/frontend/api/v3/captcha-invisible/invisible-captcha-infos', (route) => route.abort())
-  await page.route('https://captcha.liveidentity.com/captcha/public/frontend/api/v3/captchas**', (route) => route.abort())
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 720 },
+    locale: 'fr-FR',
+    timezoneId: 'Europe/Paris',
+    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.7727.15 Safari/537.36',
+  })
+  const page = await context.newPage()
+  // masquer navigator.webdriver avant tout script de la page
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
+  })
   page.setDefaultTimeout(120000)
   await page.goto('https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=tennis&view=start&full=1')
 
