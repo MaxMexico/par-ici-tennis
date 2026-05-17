@@ -74,6 +74,7 @@ const bookTennis = async () => {
       // attendre la fin des requêtes AJAX pour avoir les résultats chargés
       await page.waitForLoadState('domcontentloaded')
       await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {})
+      console.log(`${dayjs().format()} - URL après recherche: ${page.url()}`)
 
       let selectedHour
       hoursLoop:
