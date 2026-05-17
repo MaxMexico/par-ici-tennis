@@ -150,19 +150,29 @@ const bookTennis = async () => {
 
       // Résoudre le CAPTCHA visuel si présent (jusqu'à 3 tentatives)
       if (page.url().includes('captcha')) {
+        let captchaSolved = false
         for (let attempt = 1; attempt <= 3; attempt++) {
           await page.waitForLoadState('domcontentloaded')
           const captchaImg = await page.$('img')
           if (!captchaImg) break
-          const imgBuffer = await captchaImg.screenshot()
-          const solution = await huggingFaceAPI(new Blob([imgBuffer], { type: 'image/png' }))
-          console.log(`${dayjs().format()} - CAPTCHA tentative ${attempt}: "${solution}"`)
           const captchaInput = await page.$('input[type="text"]')
           if (!captchaInput) break
-          await captchaInput.fill(solution)
-          await page.click('text=Valider')
-          await page.waitForLoadState('domcontentloaded')
-          if (!page.url().includes('captcha')) break
+          try {
+            const imgBuffer = await captchaImg.screenshot()
+            const solution = await huggingFaceAPI(new Blob([imgBuffer], { type: 'image/png' }))
+            console.log(`${dayjs().format()} - CAPTCHA tentative ${attempt}: "${solution}"`)
+            await captchaInput.fill(solution)
+            await page.click('text=Valider')
+            await page.waitForLoadState('domcontentloaded')
+            if (!page.url().includes('captcha')) { captchaSolved = true; break }
+          } catch (captchaErr) {
+            console.log(`${dayjs().format()} - CAPTCHA solver indisponible: ${captchaErr.message}`)
+            break
+          }
+        }
+        if (!captchaSolved) {
+          console.log(`${dayjs().format()} - CAPTCHA non résolu, créneau ignoré pour ${logLocation}`)
+          continue
         }
       }
 
