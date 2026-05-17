@@ -99,9 +99,9 @@ const bookTennis = async () => {
       for (const hour of config.hours) {
         const dateDeb = `[datedeb="${date.format('YYYY/MM/DD')} ${hour}:00:00"]`
         if (await page.$(dateDeb)) {
-          // Fix: Use JavaScript to expand accordion instead of clicking
           const accordionSelector = `#collapse${location.replaceAll(' ', '')}${hour}h`
           const accordionElement = await page.$(accordionSelector)
+          console.log(`${dayjs().format()} - ${hour}h: accordéon ${accordionSelector} ${accordionElement ? 'trouvé' : 'ABSENT'}`)
           if (accordionElement) {
             await accordionElement.evaluate(el => {
               el.classList.add('in')
@@ -112,8 +112,10 @@ const bookTennis = async () => {
 
           const courtNumbers = !Array.isArray(config.locations) ? config.locations[location] : []
           const slots = await page.$$(dateDeb)
+          console.log(`${dayjs().format()} - ${hour}h: ${slots.length} slot(s) trouvé(s)`)
           for (const slot of slots) {
-            const bookSlotButton = `[courtid="${await slot.getAttribute('courtid')}"]${dateDeb}`
+            const courtId = await slot.getAttribute('courtid')
+            const bookSlotButton = `[courtid="${courtId}"]${dateDeb}`
             if (courtNumbers.length > 0) {
               const courtName = (await (await page.$(`.court:left-of(${bookSlotButton})`)).innerText()).trim()
               if (!courtNumbers.includes(parseInt(courtName.match(/Court N°(\d+)/)[1]))) {
@@ -121,7 +123,13 @@ const bookTennis = async () => {
               }
             }
 
-            const [priceType, courtType] = (await (await page.$(`.price-description:left-of(${bookSlotButton})`)).innerHTML()).split('<br>')
+            const priceEl = await page.$(`.price-description:left-of(${bookSlotButton})`)
+            if (!priceEl) {
+              console.log(`${dayjs().format()} - ${hour}h court ${courtId}: price-description introuvable`)
+              continue
+            }
+            const [priceType, courtType] = (await priceEl.innerHTML()).split('<br>')
+            console.log(`${dayjs().format()} - ${hour}h court ${courtId}: priceType="${priceType}" courtType="${courtType}"`)
             if (!config.priceType.includes(priceType) || !config.courtType.includes(courtType)) {
               continue
             }
