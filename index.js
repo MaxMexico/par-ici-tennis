@@ -69,6 +69,9 @@ const bookTennis = async () => {
       const logLocation = process.env.GITHUB_ACTIONS ? `location ${i + 1}` : location
       console.log(`${dayjs().format()} - Search at ${logLocation}`)
       await page.goto('https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=recherche&view=recherche_creneau#!')
+      await page.waitForLoadState('domcontentloaded')
+      console.log(`${dayjs().format()} - Page de recherche: ${page.url()} | titre: "${await page.title()}"`)
+      await page.screenshot({ path: 'img/search-page.png' }).catch(() => {})
 
       // select tennis location
       await page.locator('.tokens-input-text').pressSequentially(`${location} `)
