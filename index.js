@@ -91,7 +91,8 @@ const bookTennis = async () => {
       await page.waitForLoadState('domcontentloaded')
       await page.waitForURL(url => !String(url).includes('action='), { timeout: 12000 }).catch(() => {})
       await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {})
-      console.log(`${dayjs().format()} - URL après recherche: ${page.url()}`)
+      console.log(`${dayjs().format()} - URL après recherche: ${page.url()} | titre: "${await page.title().catch(() => '?')}"`)
+      await page.screenshot({ path: `img/results-${location.replaceAll(' ', '')}.png`, fullPage: true }).catch(() => {})
 
       let selectedHour
       hoursLoop:
