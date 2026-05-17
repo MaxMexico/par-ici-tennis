@@ -135,7 +135,7 @@ const bookTennis = async () => {
             }
             selectedHour = hour
             await page.$eval(bookSlotButton, el => el.click())
-            await page.waitForURL('**', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {})
+            await page.waitForSelector('.order-steps-infos', { timeout: 15000 }).catch(() => {})
 
             break hoursLoop
           }
