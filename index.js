@@ -87,8 +87,9 @@ const bookTennis = async () => {
 
       await page.click('#rechercher')
 
-      // attendre la fin des requêtes AJAX pour avoir les résultats chargés
+      // l'URL action= est transitoire et redirige (JS) vers la vue résultats
       await page.waitForLoadState('domcontentloaded')
+      await page.waitForURL(url => !String(url).includes('action='), { timeout: 12000 }).catch(() => {})
       await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {})
       console.log(`${dayjs().format()} - URL après recherche: ${page.url()}`)
 
