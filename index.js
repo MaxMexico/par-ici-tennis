@@ -85,6 +85,15 @@ const bookTennis = async () => {
       await page.click(`[dateiso="${date.format('DD/MM/YYYY')}"]`)
       await page.waitForSelector('.date-picker', { state: 'hidden' })
 
+      // Attendre 08:00:00 pile avant de soumettre (les créneaux s'ouvrent à 08:00:00)
+      const searchNow = dayjs().tz('Europe/Paris')
+      const openTime = searchNow.hour(8).minute(0).second(0).millisecond(0)
+      if (searchNow.isBefore(openTime)) {
+        const waitMs = openTime.diff(searchNow)
+        console.log(`${dayjs().format()} - Attente ouverture des créneaux (${(waitMs / 1000).toFixed(1)}s)`)
+        await new Promise(resolve => setTimeout(resolve, waitMs))
+      }
+
       await page.click('#rechercher')
 
       // wait until the results page is fully loaded before continue
