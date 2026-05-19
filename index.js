@@ -201,7 +201,12 @@ const bookTennis = async () => {
       await submit.evaluate(el => el.classList.remove('hide'))
       await submit.click()
 
-      await page.waitForSelector('.confirmReservation')
+      await page.waitForSelector('.confirmReservation', { timeout: 30000 }).catch(async () => {
+        const url = page.url()
+        const title = await page.title().catch(() => '?')
+        console.log(`${dayjs().format()} - Confirmation non trouvée: ${url} | "${title}"`)
+        await page.screenshot({ path: 'img/after-submit.png', fullPage: true }).catch(() => {})
+      })
 
       const address = (await page.locator('.address').textContent()).trim().replace(/( ){2,}/g, ' ')
       const dateStr = (await page.locator('.date').textContent()).trim().replace(/( ){2,}/g, ' ')
