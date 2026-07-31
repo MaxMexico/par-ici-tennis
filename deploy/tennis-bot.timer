@@ -1,0 +1,14 @@
+[Unit]
+Description=Déclenche le bot tennis avant l'ouverture des réservations
+
+[Timer]
+# systemd gère le fuseau et l'heure d'été nativement : contrairement à cron, pas besoin
+# de deux horaires UTC pour couvrir hiver et été.
+# Le bot démarre 5 min avant l'ouverture pour faire son warm-up (login + pages armées),
+# puis attend lui-même 08:00:00.000 avant de déclencher la recherche.
+OnCalendar=*-*-* 07:55:00 Europe/Paris
+AccuracySec=1s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

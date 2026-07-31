@@ -15,7 +15,9 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}
-  cancel-in-progress: true
+  # false : en hiver le cron 06:45 UTC (07:45 Paris) démarrait pendant que le run de
+  # 05:45 UTC attendait encore, et l'annulait en plein warm-up.
+  cancel-in-progress: false
 
 jobs:
   run-once:
@@ -57,10 +59,10 @@ jobs:
       - name: Install Playwright browser (only-shell)
         run: npx playwright install chromium --only-shell
 
-      - name: Wait 08:00 Europe/Paris
-        if: github.event_name == 'schedule'
-        run: npm run wait
-
+      # Pas d'attente ici : le script fait lui-même son warm-up (login + pages de recherche
+      # armées) AVANT 08:00 et ne déclenche la recherche qu'à l'instant d'ouverture.
+      # Attendre 08:00 dans le workflow revenait à démarrer un navigateur froid une fois
+      # la fenêtre déjà ouverte.
       - name: Run script
         env:
           ACCOUNT_EMAIL: ${{ secrets.ACCOUNT_EMAIL }}
@@ -68,6 +70,15 @@ jobs:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           NTFY_DOMAIN: ${{ secrets.NTFY_DOMAIN }}
         run: npm start
+
+      - name: Upload failure traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tennis-failure-traces
+          path: img/
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Self-disable this workflow (GitHub CLI)
         if: always()

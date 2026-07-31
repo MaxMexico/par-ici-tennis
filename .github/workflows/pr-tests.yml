@@ -25,3 +25,5 @@ jobs:
         run: npm ci
       - name: ESlint
         run: npm run eslint
+      - name: Unit tests
+        run: npm test
