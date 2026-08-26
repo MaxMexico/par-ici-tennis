@@ -18,11 +18,21 @@ npm start >> "$LOG_FILE" 2>&1
 EXIT_CODE=$?
 
 case $EXIT_CODE in
-    0) echo "$(date -Is) - run terminé : réservation effectuée" >> "$LOG_FILE" ;;
-    2) echo "$(date -Is) - run terminé : aucun créneau" >> "$LOG_FILE" ;;
-    3) echo "$(date -Is) - run terminé : compte bloqué par une réservation déjà en cours" >> "$LOG_FILE" ;;
-    *) echo "$(date -Is) - run terminé : ÉCHEC (code $EXIT_CODE)" >> "$LOG_FILE" ;;
+    0) VERDICT="réservation effectuée" ;;
+    2) VERDICT="aucun créneau" ;;
+    3) VERDICT="compte bloqué par une réservation déjà en cours" ;;
+    *) VERDICT="ÉCHEC (code $EXIT_CODE)" ;;
 esac
+echo "$(date -Is) - run terminé : $VERDICT" >> "$LOG_FILE"
+
+# Sous cron, stdout/stderr partent en mail : ces lignes finissent dans le journal via
+# la redirection de l'appelant. En lancement manuel, elles évitent un run muet dont on
+# ne sait rien d'autre que le code de sortie.
+echo "run terminé : $VERDICT" >&2
+if [ "$EXIT_CODE" -ne 0 ] && [ "$EXIT_CODE" -ne 2 ] && [ "$EXIT_CODE" -ne 3 ]; then
+    echo "--- 20 dernières lignes de $LOG_FILE ---" >&2
+    tail -n 20 "$LOG_FILE" >&2
+fi
 
 if [ -x "$APP_DIR/scripts/update_site.sh" ]; then
     "$APP_DIR/scripts/update_site.sh" || echo "$(date -Is) - mise à jour du dashboard en échec" >> "$LOG_FILE"
