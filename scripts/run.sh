@@ -20,6 +20,7 @@ EXIT_CODE=$?
 case $EXIT_CODE in
     0) echo "$(date -Is) - run terminé : réservation effectuée" >> "$LOG_FILE" ;;
     2) echo "$(date -Is) - run terminé : aucun créneau" >> "$LOG_FILE" ;;
+    3) echo "$(date -Is) - run terminé : compte bloqué par une réservation déjà en cours" >> "$LOG_FILE" ;;
     *) echo "$(date -Is) - run terminé : ÉCHEC (code $EXIT_CODE)" >> "$LOG_FILE" ;;
 esac
 
