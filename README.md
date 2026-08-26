@@ -64,6 +64,29 @@ Choose the format that best matches your preferences.
 
 - `players` list of players 3 max (without you)
 
+- `replaceExistingReservation` (default `false`) Paris Tennis allows only one active
+  reservation per account. When you already have one, clicking a slot opens a modal asking
+  whether to replace it — and the booking cannot proceed until you answer. With `false` the
+  script answers **No**, leaves your existing reservation untouched, and exits with code `3`
+  telling you to cancel it first. Set it to `true` only if you accept that a new booking
+  **cancels the one you already have**. Dry-run never replaces anything, whatever the value.
+
+- `paymentMode` (optional) value written into the site's payment field. Leave it unset:
+  the site pre-fills that field itself (observed value `ticket`) and overwriting it with
+  a value the site does not know leaves the booking stuck at step 2/3. Only set this if
+  the field ever comes up empty.
+
+Advanced timing options (all optional, sensible defaults):
+
+- `openingTime` (default `"08:00:00"`) the exact instant, in `Europe/Paris`, when slots open.
+  The script completes its warm-up (login + one pre-armed search page per location) *before*
+  this instant, then fires every search simultaneously the moment it passes.
+- `sweepWindowMs` (default `90000`) how long to keep re-sweeping every location after the
+  opening, in case slots appear with a delay or are released by other users.
+- `warmupTimeoutMs` (default `45000`) / `rushTimeoutMs` (default `5000`) Playwright timeouts
+  before and during the rush. Keep the rush timeout short: a hung selector must not eat the
+  whole window.
+
 ### Ntfy notifications (optional)
 
 You can configure the script to send notifications with the reservation details and the ics file via [ntfy](https://ntfy.sh), a simple pub-sub notification service.
@@ -116,7 +139,13 @@ To test your configuration, you can run this project in dry-run mode. It will ch
 npm run start-dry
 ```
 
-You can start the script automatically using cron or equivalent
+The script exits with `0` when a court was booked, `2` when no slot was found, and `1` on
+error — so a scheduler can tell a real failure from an empty morning. Every failure writes a
+screenshot **and** an HTML dump under `img/`, which is what you need to tell "the site changed"
+apart from "there was nothing available".
+
+To run it automatically on a server or VM, see [`deploy/`](deploy/README.md): it ships a
+systemd timer that handles `Europe/Paris` and DST natively, which cron does not.
 
 #### <ins>Using GitHub Actions (beta)</ins>
 

@@ -23,8 +23,9 @@
     "postinstall": "npx playwright install chromium",
     "start": "node index.js",
     "start-dry": "node index.js --dry-run",
-    "wait": "node scripts/wait-8-am.js",
-    "eslint": "eslint ."
+    "test": "node --test \"test/**/*.test.js\"",
+    "eslint": "eslint .",
+    "inspect": "node scripts/inspect-slots.js"
   },
   "dependencies": {
     "@gradio/client": "^1.19.1",

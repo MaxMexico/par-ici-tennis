@@ -1,40 +1,68 @@
 #!/bin/bash
 
-# --- CONFIGURATION ---
-WWW_DIR="/home/maxencebrunet06/www"
+set -euo pipefail
+
+# --- CONFIGURATION (surchargeable par variables d'environnement) ---
+APP_DIR="${APP_DIR:-$HOME/par-ici-tennis}"
+WWW_DIR="${WWW_DIR:-$HOME/www}"
 OUTPUT="$WWW_DIR/index.html"
-LOG_FILE="/home/maxencebrunet06/tennis.log"
-CONFIG_FILE="/home/maxencebrunet06/par-ici-tennis/config.json"
+LOG_FILE="${LOG_FILE:-$HOME/tennis.log}"
+CONFIG_FILE="${CONFIG_FILE:-$APP_DIR/config.json}"
+NEXT_RUN="${NEXT_RUN:-07:55}"
 DATE=$(date "+%d/%m/%Y à %H:%M")
+TODAY=$(date "+%Y-%m-%d")
+
+mkdir -p "$WWW_DIR"
 
 # --- ANALYSE DES DONNÉES ---
-COURTS=$(jq -r 'if (.locations | type) == "array" then .locations | join(", ") else .locations | keys | join(", ") end' $CONFIG_FILE)
+COURTS=$(jq -r 'if (.locations | type) == "array" then .locations | join(", ") else .locations | keys | join(", ") end' "$CONFIG_FILE")
+COURTS=${COURTS//&/&amp;}
+COURTS=${COURTS//</&lt;}
+COURTS=${COURTS//>/&gt;}
 
 # --- DÉTERMINATION DU STATUT ---
+# Le log est cumulatif : on ne regarde que les lignes du jour, sinon un succès ancien
+# fige le dashboard sur "RÉSERVÉ !" indéfiniment et masque les échecs suivants.
+TODAY_LOG=""
+if [ -s "$LOG_FILE" ]; then
+    TODAY_LOG=$(grep "^$TODAY" "$LOG_FILE" || true)
+fi
+
 STATUS="En attente"
 COLOR_BG="#f2f2f7"
 COLOR_TXT="#1c1c1e"
 ICON="💤"
 
-if [ -s "$LOG_FILE" ]; then
-    if grep -q "Réservation faite" "$LOG_FILE"; then
-        STATUS="RÉSERVÉ !"
-        COLOR_BG="#34c759"
-        COLOR_TXT="#ffffff"
-        ICON="🎾"
-    elif grep -q "Aucun créneau" "$LOG_FILE"; then
-        STATUS="Aucun créneau"
-        COLOR_BG="#ff9500"
-        COLOR_TXT="#ffffff"
-        ICON="⚠️"
-    elif grep -q "Error\|Exception" "$LOG_FILE"; then
-        STATUS="Erreur"
-        COLOR_BG="#ff3b30"
-        COLOR_TXT="#ffffff"
-        ICON="❌"
-    fi
-else
+if [ -z "$TODAY_LOG" ]; then
     STATUS="Prêt"
+elif grep -q "Réservation faite" <<< "$TODAY_LOG"; then
+    STATUS="RÉSERVÉ !"
+    COLOR_BG="#34c759"
+    COLOR_TXT="#ffffff"
+    ICON="🎾"
+elif grep -q "confirmation non détectée" <<< "$TODAY_LOG"; then
+    STATUS="À vérifier"
+    COLOR_BG="#ff9500"
+    COLOR_TXT="#ffffff"
+    ICON="❓"
+elif grep -q "déjà une réservation en cours" <<< "$TODAY_LOG"; then
+    STATUS="Déjà réservé"
+    COLOR_BG="#5856d6"
+    COLOR_TXT="#ffffff"
+    ICON="🔒"
+elif grep -q "ÉCHEC" <<< "$TODAY_LOG"; then
+    STATUS="Erreur"
+    COLOR_BG="#ff3b30"
+    COLOR_TXT="#ffffff"
+    ICON="❌"
+elif grep -q "Aucun créneau trouvé" <<< "$TODAY_LOG"; then
+    STATUS="Aucun créneau"
+    COLOR_BG="#ff9500"
+    COLOR_TXT="#ffffff"
+    ICON="⚠️"
+else
+    STATUS="En cours"
+    ICON="⏳"
 fi
 
 # --- GÉNÉRATION HTML ---
@@ -81,7 +109,7 @@ cat <<EOF > $OUTPUT
     <div class="status-card">
         <span class="status-icon">$ICON</span>
         <h2 class="status-text">$STATUS</h2>
-        <div class="status-sub">Prochain tir : Demain 07:55</div>
+        <div class="status-sub">Prochain tir : $NEXT_RUN (Europe/Paris)</div>
     </div>
 
     <div class="card">
@@ -99,7 +127,7 @@ cat <<EOF > $OUTPUT
             <span>TERMINAL</span>
             <span>LIVE</span>
         </div>
-        <div class="logs-content">$(if [ -s "$LOG_FILE" ]; then tail -n 25 $LOG_FILE | sed 's/</\&lt;/g; s/>/\&gt;/g'; else echo "En attente du prochain lancement..."; fi)</div>
+        <div class="logs-content">$(if [ -s "$LOG_FILE" ]; then tail -n 25 "$LOG_FILE" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; else echo "En attente du prochain lancement..."; fi)</div>
     </div>
 
     <div class="footer">

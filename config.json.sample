@@ -34,6 +34,7 @@
       "firstName": "Firstname2"
     }
   ],
+  "replaceExistingReservation": false,
   "ntfy": {
     "enable": false,
     "topic": "YOUR-OWN-TOPIC"

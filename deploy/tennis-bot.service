@@ -1,0 +1,23 @@
+[Unit]
+Description=Réservation automatique de tennis Paris
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+
+[Service]
+Type=oneshot
+User=%i
+WorkingDirectory=%h/par-ici-tennis
+Environment=APP_DIR=%h/par-ici-tennis
+Environment=LOG_FILE=%h/tennis.log
+Environment=WWW_DIR=%h/www
+# Les identifiants ne doivent pas se trouver dans config.json : mettre
+# ACCOUNT_EMAIL / ACCOUNT_PASSWORD / NTFY_TOPIC dans ce fichier, en chmod 600.
+EnvironmentFile=%h/.par-ici-tennis.env
+ExecStart=%h/par-ici-tennis/scripts/run.sh
+# Le warm-up démarre ~5 min avant l'ouverture ; on laisse largement de quoi finir la ruée.
+TimeoutStartSec=900
+# 2 = aucun créneau trouvé : ce n'est pas une panne, inutile de marquer l'unité en échec.
+SuccessExitStatus=0 2
+
+[Install]
+WantedBy=multi-user.target
