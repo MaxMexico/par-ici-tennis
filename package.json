@@ -24,7 +24,8 @@
     "start": "node index.js",
     "start-dry": "node index.js --dry-run",
     "test": "node --test \"test/**/*.test.js\"",
-    "eslint": "eslint ."
+    "eslint": "eslint .",
+    "inspect": "node scripts/inspect-slots.js"
   },
   "dependencies": {
     "@gradio/client": "^1.19.1",
