@@ -263,7 +263,15 @@ const bookTennis = async () => {
 
   log(`Cible : ${date.format('DD/MM/YYYY')} — ${locations.length} terrain(s) — ouverture ${OPENING_TIME}`)
 
-  const browser = await chromium.launch({ headless: true, slowMo: 0, timeout: 120000 })
+  // Un contexte par terrain signifie plusieurs pages chargées en même temps. Sur une
+  // petite VM (~1 Go), Chromium sature /dev/shm et meurt sans message exploitable :
+  // --disable-dev-shm-usage le fait travailler dans /tmp à la place.
+  const browser = await chromium.launch({
+    headless: true,
+    slowMo: 0,
+    timeout: 120000,
+    args: ['--disable-dev-shm-usage', '--disable-gpu', '--no-zygote'],
+  })
 
   let exitCode = 0
   let pages = []
