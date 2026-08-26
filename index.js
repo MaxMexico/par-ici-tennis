@@ -19,6 +19,9 @@ const DRY_RUN_MODE = process.argv.includes('--dry-run')
 const BLOCK_CAPTCHA = process.argv.includes('--allow-captcha')
   ? false
   : (config.blockCaptcha ?? true)
+// Répondre « Oui » à la modale « vous avez déjà une réservation en cours » ANNULE la
+// réservation existante. Jamais par défaut : c'est une action destructrice.
+const REPLACE_EXISTING = config.replaceExistingReservation === true
 const IN_CI = Boolean(process.env.GITHUB_ACTIONS)
 
 const log = (message) => console.log(`${nowParis().format('YYYY-MM-DDTHH:mm:ss.SSS')} - ${message}`)
@@ -149,15 +152,40 @@ const findAndClickSlot = async (page, location, date) => {
       log(`Créneau retenu : ${location} ${hour}h — ${metadata.courtName} (${metadata.priceType} / ${metadata.courtType})`)
       await page.$eval(bookSlotButton, el => el.click())
 
-      // Régression du 22/04/2026 (2837c59) : waitForURL('**') retourne en ~3 ms sans rien
-      // attendre. Le contrôle de titre qui suivait lisait donc l'ancienne page et le créneau
-      // déjà cliqué était abandonné. On attend désormais un marqueur réel du tunnel.
-      const reached = await page.locator('.order-steps-infos')
-        .waitFor({ state: 'visible', timeout: 15000 })
-        .then(() => true)
-        .catch(() => false)
+      // Le site intercale une modale quand le compte a déjà une réservation active :
+      // « Vous avez déjà une réservation en cours. Souhaitez-vous la remplacer ? ».
+      // Tant qu'on n'y répond pas, le tunnel n'apparaît jamais — c'est ce qui bloquait
+      // silencieusement toutes les réservations.
+      const existingReservationModal = page.locator('.modal.in').filter({ hasText: 'réservation en cours' }).first()
+      const step = await Promise.race([
+        page.locator('.order-steps-infos').waitFor({ state: 'visible', timeout: 15000 }).then(() => 'tunnel'),
+        existingReservationModal.waitFor({ state: 'visible', timeout: 15000 }).then(() => 'modal'),
+      ]).catch(() => 'timeout')
 
-      if (!reached) {
+      if (step === 'modal') {
+        // Un test à blanc ne doit jamais détruire une réservation, même si le
+        // remplacement est autorisé en configuration.
+        if (!REPLACE_EXISTING || DRY_RUN_MODE) {
+          // Répondre « Non » laisse la réservation existante intacte.
+          await existingReservationModal.locator('a, button, .btn').filter({ hasText: /^\s*Non\s*$/ }).first()
+            .click().catch(() => {})
+          return { blocked: 'existing-reservation' }
+        }
+
+        log('Réservation existante détectée — remplacement autorisé par la config, réponse « Oui »')
+        await existingReservationModal.locator('a, button, .btn').filter({ hasText: /^\s*Oui\s*$/ }).first().click()
+        const replaced = await page.locator('.order-steps-infos')
+          .waitFor({ state: 'visible', timeout: 15000 })
+          .then(() => true)
+          .catch(() => false)
+        if (!replaced) {
+          await dumpPage(page, `replace-failed-${location.replaceAll(' ', '')}-${hour}h`)
+          return null
+        }
+        return { hour }
+      }
+
+      if (step !== 'tunnel') {
         // Sans l'URL et le titre, l'échec est indiscernable entre « le clic n'a rien
         // fait », « une modale s'est ouverte » et « le site a renvoyé une erreur ».
         const alerts = await page.locator('.alert, .error, .message, [class*="popin"], .modal:visible')
@@ -170,7 +198,7 @@ const findAndClickSlot = async (page, location, date) => {
         return null
       }
 
-      return hour
+      return { hour }
     }
   }
 
@@ -342,9 +370,10 @@ const bookTennis = async () => {
     // --- RUÉE : balayages successifs jusqu'à épuisement de la fenêtre. ---
     const deadline = Date.now() + SWEEP_WINDOW_MS
     let booked = false
+    let blockedByExistingReservation = false
     let sweep = 0
 
-    while (!booked && Date.now() < deadline) {
+    while (!booked && !blockedByExistingReservation && Date.now() < deadline) {
       sweep += 1
 
       // Tous les terrains sont interrogés simultanément ; les résultats sont ensuite
@@ -373,19 +402,27 @@ const bookTennis = async () => {
           continue
         }
 
-        let selectedHour = null
+        let result = null
         try {
-          selectedHour = await findAndClickSlot(entry.page, entry.location, date)
+          result = await findAndClickSlot(entry.page, entry.location, date)
         } catch (err) {
           logError(`Passe ${sweep} — ${logLocation} : ${err.message}`)
           continue
         }
 
-        if (!selectedHour) {
+        if (result?.blocked === 'existing-reservation') {
+          // Inutile de balayer les autres terrains ni de relancer : le blocage est sur
+          // le compte, pas sur la disponibilité.
+          blockedByExistingReservation = true
+          break
+        }
+
+        if (!result) {
           log(`Passe ${sweep} — ${logLocation} : aucun créneau conforme à la config`)
           continue
         }
 
+        const selectedHour = result.hour
         const page = entry.page
         await page.waitForSelector('.order-steps-infos h2 >> text="1 / 3 - Validation du court"')
         await fillPlayersAndPay(page)
@@ -404,12 +441,23 @@ const bookTennis = async () => {
         break
       }
 
-      if (!booked && Date.now() < deadline) {
+      if (!booked && !blockedByExistingReservation && Date.now() < deadline) {
         await sleep(400)
       }
     }
 
-    if (!booked) {
+    if (blockedByExistingReservation) {
+      // Répondre « Oui » annulerait la réservation existante : jamais sans consigne
+      // explicite. Le compte est bloqué, pas les créneaux.
+      exitCode = 3
+      const message = 'Réservation impossible : le compte a déjà une réservation en cours. '
+        + 'Annulez-la sur tennis.paris.fr, ou activez "replaceExistingReservation": true '
+        + 'dans config.json pour autoriser son remplacement automatique.'
+      logError(message)
+      if (ntfyEnabled()) {
+        await notify(null, null, message, ntfyConfig())
+      }
+    } else if (!booked) {
       exitCode = 2
       const label = date.format('DD/MM/YYYY')
       log(`Aucun créneau trouvé après ${sweep} passe(s) sur ${locations.length} terrain(s) pour le ${label}`)

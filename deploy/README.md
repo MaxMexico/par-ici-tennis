@@ -53,6 +53,7 @@ L'horloge est critique : le bot vise `08:00:00.000`. Sur GCE, `systemd-timesyncd
 | `0`  | Réservation effectuée |
 | `1`  | Erreur (identifiants, site injoignable, sélecteur cassé…) |
 | `2`  | Aucun créneau disponible |
+| `3`  | Compte bloqué par une réservation déjà en cours (voir `replaceExistingReservation`) |
 
 ## Diagnostic d'un échec
 

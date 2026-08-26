@@ -64,6 +64,13 @@ Choose the format that best matches your preferences.
 
 - `players` list of players 3 max (without you)
 
+- `replaceExistingReservation` (default `false`) Paris Tennis allows only one active
+  reservation per account. When you already have one, clicking a slot opens a modal asking
+  whether to replace it — and the booking cannot proceed until you answer. With `false` the
+  script answers **No**, leaves your existing reservation untouched, and exits with code `3`
+  telling you to cancel it first. Set it to `true` only if you accept that a new booking
+  **cancels the one you already have**. Dry-run never replaces anything, whatever the value.
+
 Advanced timing options (all optional, sensible defaults):
 
 - `openingTime` (default `"08:00:00"`) the exact instant, in `Europe/Paris`, when slots open.
