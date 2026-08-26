@@ -71,6 +71,11 @@ Choose the format that best matches your preferences.
   telling you to cancel it first. Set it to `true` only if you accept that a new booking
   **cancels the one you already have**. Dry-run never replaces anything, whatever the value.
 
+- `paymentMode` (optional) value written into the site's payment field. Leave it unset:
+  the site pre-fills that field itself (observed value `ticket`) and overwriting it with
+  a value the site does not know leaves the booking stuck at step 2/3. Only set this if
+  the field ever comes up empty.
+
 Advanced timing options (all optional, sensible defaults):
 
 - `openingTime` (default `"08:00:00"`) the exact instant, in `Europe/Paris`, when slots open.

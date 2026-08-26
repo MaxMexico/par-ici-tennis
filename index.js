@@ -219,11 +219,27 @@ const fillPlayersAndPay = async (page) => {
 
   await page.waitForSelector('#order_select_payment_form #paymentMode', { state: 'attached' })
   const paymentMode = await page.$('#order_select_payment_form #paymentMode')
-  await paymentMode.evaluate((el) => {
-    el.removeAttribute('readonly')
-    el.style.display = 'block'
-  })
-  await paymentMode.fill('existingTicket')
+
+  // Le site pré-remplit lui-même ce champ (observé : value="ticket", readonly). L'ancien
+  // code l'écrasait avec 'existingTicket', une valeur que le site ne reconnaît pas : le
+  // formulaire restait invalide et le tunnel bloquait à l'étape 2/3. On ne force donc
+  // une valeur que si le champ est vide, ou si la config en impose une explicitement.
+  const current = (await paymentMode.evaluate(el => el.value)) || ''
+  const forced = config.paymentMode
+  const wanted = forced || current || 'ticket'
+
+  if (current !== wanted) {
+    log(`Mode de paiement : "${current || '(vide)'}" → "${wanted}"`)
+    await paymentMode.evaluate((el, value) => {
+      el.removeAttribute('readonly')
+      el.value = value
+      // Sans ces événements, la validation du site ne voit pas le changement.
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+      el.dispatchEvent(new Event('change', { bubbles: true }))
+    }, wanted)
+  } else {
+    log(`Mode de paiement conservé tel quel : "${current}"`)
+  }
 }
 
 const buildIcs = (event) => new Promise((resolve, reject) => {
@@ -235,19 +251,30 @@ const confirmBooking = async (page, date, selectedHour, logLocation) => {
   await submit.evaluate(el => el.classList.remove('hide'))
   await submit.click()
 
-  // La demande de réservation est partie. Si la page de confirmation n'apparaît pas,
-  // cela ne prouve PAS que la réservation a échoué : elle peut être enregistrée côté
-  // serveur alors que le marqueur attendu a changé de nom. Présenter ça comme un échec
-  // sec pousse à relancer — et à réserver deux fois.
-  const confirmed = await page.locator('.confirmReservation')
+  // `#confirmReservation` est une <div class="modal fade"> : une modale de confirmation,
+  // pas la page finale. L'ancien code attendait `.confirmReservation` comme une CLASSE,
+  // qui n'existe nulle part — l'attente ne pouvait donc jamais aboutir.
+  const confirmModal = page.locator('#confirmReservation')
+  if (await confirmModal.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)) {
+    const buttons = await confirmModal.locator('a, button, .btn').allInnerTexts().catch(() => [])
+    log(`Modale de confirmation ouverte — boutons : ${JSON.stringify(buttons.map(t => t.trim()).filter(Boolean))}`)
+    await confirmModal.locator('a, button, .btn')
+      .filter({ hasText: /confirm|valid|oui|r[ée]server/i }).first()
+      .click().catch(err => logError(`Clic de confirmation impossible : ${err.message}`))
+  }
+
+  // Le succès se mesure à l'avancement du tunnel, pas à un marqueur nommé : les étapes
+  // sont libellées « 1 / 3 », « 2 / 3 », « 3 / 3 » par le site lui-même.
+  const confirmed = await page.locator('.order-steps-infos').filter({ hasText: '3 / 3' })
     .waitFor({ state: 'visible', timeout: 20000 })
     .then(() => true)
     .catch(() => false)
 
   if (!confirmed) {
-    log('Confirmation non détectée après envoi — la réservation a peut-être abouti')
-    log(`  url   : ${page.url()}`)
-    log(`  titre : ${await page.title().catch(() => '?')}`)
+    log('Étape 3/3 non atteinte après envoi — la réservation a peut-être abouti')
+    log(`  url    : ${page.url()}`)
+    log(`  titre  : ${await page.title().catch(() => '?')}`)
+    log(`  étape  : ${(await page.locator('.order-steps-infos').first().innerText().catch(() => '?')).replace(/\s+/g, ' ').slice(0, 80)}`)
     await dumpPage(page, 'confirmation-uncertain')
     return 'uncertain'
   }
