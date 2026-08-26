@@ -36,7 +36,7 @@ const dumpPage = async (page, label) => {
   }
 }
 
-const login = async (page) => {
+const login = async (page, label) => {
   await page.goto('https://tennis.paris.fr/tennis/jsp/site/Portal.jsp?page=tennis&view=start&full=1')
   await page.click('#button_suivi_inscription')
   await page.fill('#username', config?.account?.email || process.env.ACCOUNT_EMAIL)
@@ -55,7 +55,7 @@ const login = async (page) => {
     throw new Error(`Connexion échouée (${outcome}) — vérifiez ACCOUNT_EMAIL / ACCOUNT_PASSWORD`)
   }
 
-  log('Connecté')
+  log(`Session ouverte${label ? ` — ${label}` : ''}`)
 }
 
 // Prépare une page jusqu'au point où il ne reste plus qu'à cliquer sur #rechercher.
@@ -264,24 +264,25 @@ const bookTennis = async () => {
   log(`Cible : ${date.format('DD/MM/YYYY')} — ${locations.length} terrain(s) — ouverture ${OPENING_TIME}`)
 
   const browser = await chromium.launch({ headless: true, slowMo: 0, timeout: 120000 })
-  const context = await browser.newContext()
-  const loginPage = await context.newPage()
-  loginPage.setDefaultTimeout(WARMUP_TIMEOUT)
-  await loginPage.route('https://captcha.liveidentity.com/captcha/public/frontend/api/v3/captcha-invisible/invisible-captcha-infos', route => route.abort())
-  await loginPage.route('https://captcha.liveidentity.com/captcha/public/frontend/api/v3/captchas**', route => route.abort())
 
   let exitCode = 0
+  let pages = []
 
   try {
-    await login(loginPage)
-
-    // --- WARM-UP : une page par terrain, toutes armées en parallèle avant l'ouverture. ---
-    // L'ancien code parcourait les terrains en série APRÈS l'ouverture : le 3e terrain
-    // n'était interrogé qu'une dizaine de secondes après le début de la fenêtre.
-    const pages = await Promise.all(locations.map(async (location) => {
+    // --- WARM-UP : un terrain par session isolée, toutes armées en parallèle. ---
+    // Une session par terrain, et non un simple onglet : le portail mémorise les
+    // terrains saisis côté session, si bien que deux recherches successives dans le
+    // même contexte cumulaient leurs jetons. Observé en production : une recherche
+    // « Rigoulot » renvoyait 96 créneaux dont les 25 de « Niox », ce qui faussait
+    // l'ordre de préférence en attribuant à un terrain les créneaux d'un autre.
+    pages = await Promise.all(locations.map(async (location) => {
+      const context = await browser.newContext()
       const page = await context.newPage()
       page.setDefaultTimeout(WARMUP_TIMEOUT)
+      await page.route('https://captcha.liveidentity.com/captcha/public/frontend/api/v3/captcha-invisible/invisible-captcha-infos', route => route.abort())
+      await page.route('https://captcha.liveidentity.com/captcha/public/frontend/api/v3/captchas**', route => route.abort())
       try {
+        await login(page, location)
         await armSearchPage(page, location, date, WARMUP_TIMEOUT)
         log(`Armé : ${location}`)
         return { location, page, armed: true }
@@ -382,7 +383,11 @@ const bookTennis = async () => {
       exitCode = 2
       const label = date.format('DD/MM/YYYY')
       log(`Aucun créneau trouvé après ${sweep} passe(s) sur ${locations.length} terrain(s) pour le ${label}`)
-      await dumpPage(pages[0].page, 'no-slot-found')
+      // Une trace par terrain : sans elle, impossible de distinguer « rien de libre »
+      // d'un DOM qui a changé, ni de savoir lequel des terrains a décroché.
+      for (const entry of pages.filter(e => e.armed)) {
+        await dumpPage(entry.page, `no-slot-found-${entry.location.replaceAll(' ', '').replaceAll('-', '')}`)
+      }
       if (ntfyEnabled()) {
         await notify(null, null, `Aucun créneau disponible le ${label} sur ${locations.join(', ')}`, ntfyConfig())
       }
@@ -391,12 +396,13 @@ const bookTennis = async () => {
     exitCode = 1
     logError(`ÉCHEC : ${err.message}`)
     logError(err.stack)
-    await dumpPage(loginPage, 'failure')
+    const survivor = pages.find(entry => entry.page)
+    if (survivor) await dumpPage(survivor.page, 'failure')
 
     if (ntfyEnabled()) {
       let screenshot = null
       try {
-        screenshot = await loginPage.screenshot()
+        if (survivor) screenshot = await survivor.page.screenshot()
       } catch { /* page morte */ }
       await notify(screenshot, screenshot ? 'failure.png' : null,
         `Erreur lors de l'exécution : ${err.message}`, ntfyConfig())
