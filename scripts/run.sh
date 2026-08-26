@@ -21,6 +21,7 @@ case $EXIT_CODE in
     0) VERDICT="réservation effectuée" ;;
     2) VERDICT="aucun créneau" ;;
     3) VERDICT="compte bloqué par une réservation déjà en cours" ;;
+    4) VERDICT="ATTENTION : demande envoyée, confirmation non détectée — vérifiez sur tennis.paris.fr" ;;
     *) VERDICT="ÉCHEC (code $EXIT_CODE)" ;;
 esac
 echo "$(date -Is) - run terminé : $VERDICT" >> "$LOG_FILE"
@@ -29,7 +30,7 @@ echo "$(date -Is) - run terminé : $VERDICT" >> "$LOG_FILE"
 # la redirection de l'appelant. En lancement manuel, elles évitent un run muet dont on
 # ne sait rien d'autre que le code de sortie.
 echo "run terminé : $VERDICT" >&2
-if [ "$EXIT_CODE" -ne 0 ] && [ "$EXIT_CODE" -ne 2 ] && [ "$EXIT_CODE" -ne 3 ]; then
+if [ "$EXIT_CODE" -ne 0 ] && [ "$EXIT_CODE" -ne 2 ] && [ "$EXIT_CODE" -ne 3 ] && [ "$EXIT_CODE" -ne 4 ]; then
     echo "--- 20 dernières lignes de $LOG_FILE ---" >&2
     tail -n 20 "$LOG_FILE" >&2
 fi

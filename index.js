@@ -235,7 +235,22 @@ const confirmBooking = async (page, date, selectedHour, logLocation) => {
   await submit.evaluate(el => el.classList.remove('hide'))
   await submit.click()
 
-  await page.waitForSelector('.confirmReservation')
+  // La demande de réservation est partie. Si la page de confirmation n'apparaît pas,
+  // cela ne prouve PAS que la réservation a échoué : elle peut être enregistrée côté
+  // serveur alors que le marqueur attendu a changé de nom. Présenter ça comme un échec
+  // sec pousse à relancer — et à réserver deux fois.
+  const confirmed = await page.locator('.confirmReservation')
+    .waitFor({ state: 'visible', timeout: 20000 })
+    .then(() => true)
+    .catch(() => false)
+
+  if (!confirmed) {
+    log('Confirmation non détectée après envoi — la réservation a peut-être abouti')
+    log(`  url   : ${page.url()}`)
+    log(`  titre : ${await page.title().catch(() => '?')}`)
+    await dumpPage(page, 'confirmation-uncertain')
+    return 'uncertain'
+  }
 
   const readText = async (selector) => {
     const handle = await page.$(selector)
@@ -277,6 +292,8 @@ const confirmBooking = async (page, date, selectedHour, logLocation) => {
     // La réservation est faite : un échec ICS/notif ne doit pas la faire passer pour un échec.
     logError(`Réservation confirmée mais notification/ICS en échec : ${err.message} (${logLocation})`)
   }
+
+  return 'confirmed'
 }
 
 const cancelDryRun = async (page) => {
@@ -370,6 +387,7 @@ const bookTennis = async () => {
     // --- RUÉE : balayages successifs jusqu'à épuisement de la fenêtre. ---
     const deadline = Date.now() + SWEEP_WINDOW_MS
     let booked = false
+    let bookingOutcome = 'confirmed'
     let blockedByExistingReservation = false
     let sweep = 0
 
@@ -434,15 +452,26 @@ const bookTennis = async () => {
             await notify(null, null, `DRY RUN : créneau disponible le ${date.format('DD/MM/YYYY')} à ${selectedHour}h`, ntfyConfig())
           }
         } else {
-          await confirmBooking(page, date, selectedHour, logLocation)
+          bookingOutcome = await confirmBooking(page, date, selectedHour, logLocation)
         }
 
+        // Même incertain, on s'arrête : relancer risquerait une seconde réservation.
         booked = true
         break
       }
 
       if (!booked && !blockedByExistingReservation && Date.now() < deadline) {
         await sleep(400)
+      }
+    }
+
+    if (booked && bookingOutcome === 'uncertain') {
+      exitCode = 4
+      const message = `Réservation envoyée pour le ${date.format('DD/MM/YYYY')} mais confirmation non détectée. `
+        + 'Vérifiez sur tennis.paris.fr avant de relancer : elle a peut-être abouti.'
+      logError(message)
+      if (ntfyEnabled()) {
+        await notify(null, null, message, ntfyConfig())
       }
     }
 
