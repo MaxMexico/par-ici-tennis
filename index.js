@@ -13,6 +13,12 @@ const SWEEP_WINDOW_MS = Number(config.sweepWindowMs ?? 90000)
 const OPENING_TIME = config.openingTime ?? '08:00:00'
 
 const DRY_RUN_MODE = process.argv.includes('--dry-run')
+// Le captcha invisible se déclenche à la réservation, pas à la recherche. Couper ses
+// requêtes sabote donc exactement l'étape qui fait passer au tunnel. `--allow-captcha`
+// (ou "blockCaptcha": false) les laisse passer.
+const BLOCK_CAPTCHA = process.argv.includes('--allow-captcha')
+  ? false
+  : (config.blockCaptcha ?? true)
 const IN_CI = Boolean(process.env.GITHUB_ACTIONS)
 
 const log = (message) => console.log(`${nowParis().format('YYYY-MM-DDTHH:mm:ss.SSS')} - ${message}`)
@@ -152,7 +158,14 @@ const findAndClickSlot = async (page, location, date) => {
         .catch(() => false)
 
       if (!reached) {
+        // Sans l'URL et le titre, l'échec est indiscernable entre « le clic n'a rien
+        // fait », « une modale s'est ouverte » et « le site a renvoyé une erreur ».
+        const alerts = await page.locator('.alert, .error, .message, [class*="popin"], .modal:visible')
+          .allInnerTexts().catch(() => [])
         log(`Clic sur le créneau ${hour}h sans arrivée sur le tunnel de réservation`)
+        log(`  url    : ${page.url()}`)
+        log(`  titre  : ${await page.title().catch(() => '?')}`)
+        log(`  alertes: ${JSON.stringify(alerts.map(t => t.trim().replace(/\s+/g, ' ').slice(0, 160)).filter(Boolean))}`)
         await dumpPage(page, `slot-click-failed-${location.replaceAll(' ', '')}-${hour}h`)
         return null
       }
@@ -287,8 +300,17 @@ const bookTennis = async () => {
       const context = await browser.newContext()
       const page = await context.newPage()
       page.setDefaultTimeout(WARMUP_TIMEOUT)
-      await page.route('https://captcha.liveidentity.com/captcha/public/frontend/api/v3/captcha-invisible/invisible-captcha-infos', route => route.abort())
-      await page.route('https://captcha.liveidentity.com/captcha/public/frontend/api/v3/captchas**', route => route.abort())
+      if (BLOCK_CAPTCHA) {
+        await page.route('https://captcha.liveidentity.com/captcha/public/frontend/api/v3/captcha-invisible/invisible-captcha-infos', route => route.abort())
+        await page.route('https://captcha.liveidentity.com/captcha/public/frontend/api/v3/captchas**', route => route.abort())
+      }
+      // Tracer les échanges avec le captcha : s'ils apparaissent au moment du clic sur
+      // le créneau, c'est qu'il conditionne l'accès au tunnel de réservation.
+      page.on('response', (response) => {
+        if (response.url().includes('captcha')) {
+          log(`captcha ← HTTP ${response.status()} ${response.url().slice(0, 110)}`)
+        }
+      })
       try {
         await login(page, location)
         await armSearchPage(page, location, date, WARMUP_TIMEOUT)
