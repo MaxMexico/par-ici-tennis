@@ -271,12 +271,22 @@ const confirmBooking = async (page, date, selectedHour, logLocation) => {
     .catch(() => false)
 
   if (!confirmed) {
-    log('Étape 3/3 non atteinte après envoi — la réservation a peut-être abouti')
+    const body = await page.content().catch(() => '')
+    // Observé en production à 08:00:07 : le site renvoie « Bad Gateway » sur
+    // view=validation_tipi, en plein pic d'ouverture. Aucune réservation n'est créée.
+    const serverError = /Bad Gateway|Gateway Time-?out|Service Unavailable|Internal Server Error|\b50[0234]\b/i
+      .exec(body.replace(/<[^>]+>/g, ' '))
+
+    log(`Étape 3/3 non atteinte après envoi${serverError ? ` — le site a répondu « ${serverError[0]} »` : ''}`)
     log(`  url    : ${page.url()}`)
-    log(`  titre  : ${await page.title().catch(() => '?')}`)
-    log(`  étape  : ${(await page.locator('.order-steps-infos').first().innerText().catch(() => '?')).replace(/\s+/g, ' ').slice(0, 80)}`)
-    await dumpPage(page, 'confirmation-uncertain')
-    return 'uncertain'
+    log(`  titre  : ${(await page.title().catch(() => '')) || '(vide)'}`)
+    log(`  étape  : ${(await page.locator('.order-steps-infos').first().innerText({ timeout: 2000 }).catch(() => '?')).replace(/\s+/g, ' ').slice(0, 80)}`)
+    await dumpPage(page, serverError ? 'server-error' : 'confirmation-uncertain')
+
+    // Une erreur serveur ne crée aucune réservation : réessayer est sûr. Et si l'une
+    // avait malgré tout été créée, la modale « déjà une réservation en cours » nous
+    // arrêterait au prochain clic — le site nous protège lui-même du doublon.
+    return serverError ? 'server-error' : 'uncertain'
   }
 
   const readText = async (selector) => {
@@ -415,6 +425,7 @@ const bookTennis = async () => {
     const deadline = Date.now() + SWEEP_WINDOW_MS
     let booked = false
     let bookingOutcome = 'confirmed'
+    let serverErrorSeen = false
     let blockedByExistingReservation = false
     let sweep = 0
 
@@ -482,13 +493,30 @@ const bookTennis = async () => {
           bookingOutcome = await confirmBooking(page, date, selectedHour, logLocation)
         }
 
-        // Même incertain, on s'arrête : relancer risquerait une seconde réservation.
+        if (bookingOutcome === 'server-error' && Date.now() < deadline) {
+          serverErrorSeen = true
+          logError(`Erreur serveur du site à la validation — nouvelle tentative (passe ${sweep})`)
+          entry.armed = false
+          continue
+        }
+
+        // Incertain : on s'arrête, relancer risquerait une seconde réservation.
         booked = true
         break
       }
 
       if (!booked && !blockedByExistingReservation && Date.now() < deadline) {
         await sleep(400)
+      }
+    }
+
+    if (!booked && serverErrorSeen) {
+      exitCode = 5
+      const message = 'Le site a repondu en erreur (502) a la validation, sur toute la fenetre. '
+        + `Aucun creneau reserve pour le ${date.format('DD/MM/YYYY')}.`
+      logError(message)
+      if (ntfyEnabled()) {
+        await notify(null, null, message, ntfyConfig())
       }
     }
 
@@ -513,7 +541,7 @@ const bookTennis = async () => {
       if (ntfyEnabled()) {
         await notify(null, null, message, ntfyConfig())
       }
-    } else if (!booked) {
+    } else if (!booked && !serverErrorSeen) {
       exitCode = 2
       const label = date.format('DD/MM/YYYY')
       log(`Aucun créneau trouvé après ${sweep} passe(s) sur ${locations.length} terrain(s) pour le ${label}`)

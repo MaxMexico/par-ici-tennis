@@ -40,6 +40,11 @@ elif grep -q "Réservation faite" <<< "$TODAY_LOG"; then
     COLOR_BG="#34c759"
     COLOR_TXT="#ffffff"
     ICON="🎾"
+elif grep -q "a repondu en erreur (502)" <<< "$TODAY_LOG"; then
+    STATUS="Site en panne"
+    COLOR_BG="#ff3b30"
+    COLOR_TXT="#ffffff"
+    ICON="🔌"
 elif grep -q "confirmation non détectée" <<< "$TODAY_LOG"; then
     STATUS="À vérifier"
     COLOR_BG="#ff9500"

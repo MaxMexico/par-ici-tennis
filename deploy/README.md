@@ -55,6 +55,7 @@ L'horloge est critique : le bot vise `08:00:00.000`. Sur GCE, `systemd-timesyncd
 | `2`  | Aucun créneau disponible |
 | `3`  | Compte bloqué par une réservation déjà en cours (voir `replaceExistingReservation`) |
 | `4`  | Demande envoyée mais confirmation non détectée — **vérifiez avant de relancer** |
+| `5`  | Le site a répondu en erreur serveur (502) pendant toute la fenêtre |
 
 ## Diagnostic d'un échec
 
@@ -64,6 +65,7 @@ Chaque échec écrit une trace dans `~/par-ici-tennis/img/` :
 - `no-slot-found.png` / `.html` — page de résultats quand aucun créneau n'est trouvé
 - `slot-click-failed-*.html` — créneau cliqué sans arrivée sur le tunnel de réservation
 - `confirmation-uncertain.html` — demande envoyée sans page de confirmation détectée
+- `server-error.html` — le site a renvoyé une erreur 5xx à la validation
 
 Le `.html` est le plus utile : il permet de vérifier si les sélecteurs du site ont changé
 sans avoir à reproduire la situation à 08:00 du matin.
